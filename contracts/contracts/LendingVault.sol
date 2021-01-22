@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: agpl-3.0
 pragma solidity 0.6.12;
 
-import { IERC20, ILendingPool, IProtocolDataProvider, IStableDebtToken } from './Interfaces.sol';
-import { SafeERC20 } from './Libraries.sol';
+import { IERC20, IERC721, ILendingPool, IProtocolDataProvider, IStableDebtToken } from './Interfaces.sol';
+import { SafeERC20, SafeMath } from './Libraries.sol';
 
 /**
  * This is a proof of concept starter contract, showing how uncollaterised loans are possible
@@ -14,14 +14,25 @@ import { SafeERC20 } from './Libraries.sol';
  
 contract MyV2CreditDelegation {
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
     
     ILendingPool constant lendingPool = ILendingPool(address(0x9FE532197ad76c5a68961439604C037EB79681F0)); // Kovan
     IProtocolDataProvider constant dataProvider = IProtocolDataProvider(address(0x744C1aaA95232EeF8A9994C4E0b3a89659D9AB79)); // Kovan
     
     address owner;
 
+    // Track balances by asset address
+    mapping (address => mapping (address => uint256)) public balances;
+
+    // Map NFT addresses to limits
+    mapping ( address => uint256 ) public limits;
+
+    mapping ( address => mapping (uint256 => bool)) public burnedApprovals;
+
     constructor () public {
         owner = msg.sender;
+        limits[0x1] = 1 ether; //Placeholder - limit arg should be an NFT address
+        limits[0x2] = 5 ether; // Placeholder - limit arg should be an NFT address
     }
 
     /**
@@ -29,33 +40,35 @@ contract MyV2CreditDelegation {
      * This would be called by the delegator.
      * @param asset The asset to be deposited as collateral
      * @param amount The amount to be deposited as collateral
-     * @param isPull Whether to pull the funds from the caller, or use funds sent to this contract
-     *  User must have approved this contract to pull funds if `isPull` = true
+     *  User must have approved this contract
      * 
      */
-    function depositCollateral(address asset, uint256 amount, bool isPull) public {
+    function depositCollateral(address asset, uint256 amount) public {
         // TODO insert storage track collateral from multiple investors
-        if (isPull) {
-            IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
-        }
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(asset).safeApprove(address(lendingPool), amount);
+        // aTokens go to this contract
         lendingPool.deposit(asset, amount, address(this), 0);
+        // Track how much collateral the investor has supplied
+        balances[asset][msg.sender] += amount;
+        // Track how much total collateral of this asset type has been supplied
+        balances[asset][this] += amount;
     }
 
     /**
-     * Approves the borrower to take an uncollaterised loan
-     * @param borrower The borrower of the funds (i.e. delgatee)
-     * @param amount The amount the borrower is allowed to borrow (i.e. their line of credit)
+     * Checks if sender is approved, and if so opens a credit delegation line
+     * @param approvalNFT The NFT address representing the creditworthiness
+     * @param tokenId The NFT ID of the approval being used
      * @param asset The asset they are allowed to borrow
      * 
      * Add permissions to this call, e.g. only the owner should be able to approve borrowers!
      */
-    function approveBorrower(address borrower, uint256 amount, address asset) public {
-        // TODO replace this with `requestLoan` which would be called by the borrower
-        // Here the borrower's address would be checked against Molecule's whitelist
-        // This could also return the initial loan disbursement to the borrower
+    function requestCredit(address approvalNFT, uint256 tokenId, address asset) public {
+        require(IERC721(approvalNFT).ownerOf(tokenId) == msg.sender);
+        burnedApprovals[approvalNFT][tokenId] = true;
+
         (, address stableDebtTokenAddress,) = dataProvider.getReserveTokensAddresses(asset);
-        IStableDebtToken(stableDebtTokenAddress).approveDelegation(borrower, amount);
+        IStableDebtToken(stableDebtTokenAddress).approveDelegation(borrower, limits[approvalNFT]);
     }
     
     /**
@@ -83,9 +96,14 @@ contract MyV2CreditDelegation {
      * Add permissions to this call, e.g. only the owner should be able to withdraw the collateral!
      */
     function withdrawCollateral(address asset) public {
-        // TODO insert logic to handle withdraw from multiple investors
         (address aTokenAddress,,) = dataProvider.getReserveTokensAddresses(asset);
         uint256 assetBalance = IERC20(aTokenAddress).balanceOf(address(this));
-        lendingPool.withdraw(asset, assetBalance, owner);
+        uint256 senderCollateral = balances[asset][msg.sender];
+        uint256 totalCollateral = balances[asset][this];
+        uint256 senderBalanceRatio = senderCollateral.div(totalCollateral);
+        uint256 senderBalance = assetBalance.mul(senderBalanceRatio);
+        balances[asset][msg.sender] -= senderCollateral;
+        balances[asset][this] -= senderCollateral;
+        lendingPool.withdraw(asset, senderBalance, msg.sender);
     }
 }
