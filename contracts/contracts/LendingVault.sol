@@ -31,8 +31,8 @@ contract MyV2CreditDelegation {
 
     constructor () public {
         owner = msg.sender;
-        limits[0x1] = 1 ether; //Placeholder - limit arg should be an NFT address
-        limits[0x2] = 5 ether; // Placeholder - limit arg should be an NFT address
+        limits[0x0000000000000000000000000000000000000001] = 1 ether; //Placeholder - limit arg should be an NFT address
+        limits[0x0000000000000000000000000000000000000002] = 5 ether; // Placeholder - limit arg should be an NFT address
     }
 
     /**
@@ -52,7 +52,7 @@ contract MyV2CreditDelegation {
         // Track how much collateral the investor has supplied
         balances[asset][msg.sender] += amount;
         // Track how much total collateral of this asset type has been supplied
-        balances[asset][this] += amount;
+        balances[asset][address(this)] += amount;
     }
 
     /**
@@ -68,7 +68,7 @@ contract MyV2CreditDelegation {
         burnedApprovals[approvalNFT][tokenId] = true;
 
         (, address stableDebtTokenAddress,) = dataProvider.getReserveTokensAddresses(asset);
-        IStableDebtToken(stableDebtTokenAddress).approveDelegation(borrower, limits[approvalNFT]);
+        IStableDebtToken(stableDebtTokenAddress).approveDelegation(msg.sender, limits[approvalNFT]);
     }
     
     /**
@@ -99,11 +99,12 @@ contract MyV2CreditDelegation {
         (address aTokenAddress,,) = dataProvider.getReserveTokensAddresses(asset);
         uint256 assetBalance = IERC20(aTokenAddress).balanceOf(address(this));
         uint256 senderCollateral = balances[asset][msg.sender];
-        uint256 totalCollateral = balances[asset][this];
+        uint256 totalCollateral = balances[asset][address(this)];
+        // Get the ratio of the collateral to evenly distribute rewards
         uint256 senderBalanceRatio = senderCollateral.div(totalCollateral);
         uint256 senderBalance = assetBalance.mul(senderBalanceRatio);
         balances[asset][msg.sender] -= senderCollateral;
-        balances[asset][this] -= senderCollateral;
+        balances[asset][address(this)] -= senderCollateral;
         lendingPool.withdraw(asset, senderBalance, msg.sender);
     }
 }
