@@ -825,4 +825,10 @@ interface IStableDebtToken {
    * @return The debt balance of the user since the last burn/mint action
    **/
   function principalBalanceOf(address user) external view returns (uint256);
+
+    /**
+   * @dev Calculates the current user debt balance
+   * @return The accumulated debt of the user
+   **/
+  function balanceOf(address account) external view returns (uint256);
 }

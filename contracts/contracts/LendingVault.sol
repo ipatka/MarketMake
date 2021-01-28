@@ -21,18 +21,32 @@ contract MyV2CreditDelegation {
     
     address owner;
 
+    struct Term {
+        uint256 limit; // Borrowing limit in wei
+        uint256 rateMultiplier;  // Interest rate on top of Aave set rate
+    }
+
+    struct Loan {
+        uint256 rateMultiplier;
+        bool active;
+        uint256 principalBalance;
+    }
+
     // Track balances by asset address
     mapping (address => mapping (address => uint256)) public balances;
 
     // Map NFT addresses to limits
-    mapping ( address => uint256 ) public limits;
+    mapping ( address => Term ) public terms;
 
     mapping ( address => mapping (uint256 => bool)) public burnedApprovals;
 
+    // Track addresses with active loans. Same address cannot have multiple lines open per asset with different terms
+    mapping ( address => mapping (address => Loan )) public loans;
+
     constructor () public {
         owner = msg.sender;
-        limits[0x0000000000000000000000000000000000000001] = 1 ether; //Placeholder - limit arg should be an NFT address
-        limits[0x0000000000000000000000000000000000000002] = 5 ether; // Placeholder - limit arg should be an NFT address
+        terms[0x0000000000000000000000000000000000000001] = Term({limit: 1 ether, rateMultiplier: 5}); //Placeholder - limit arg should be an NFT address
+        terms[0x0000000000000000000000000000000000000002] = Term({limit: 5 ether, rateMultiplier: 3}); // Placeholder - limit arg should be an NFT address
     }
 
     /**
@@ -44,7 +58,6 @@ contract MyV2CreditDelegation {
      * 
      */
     function depositCollateral(address asset, uint256 amount) public {
-        // TODO insert storage track collateral from multiple investors
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(asset).safeApprove(address(lendingPool), amount);
         // aTokens go to this contract
@@ -61,14 +74,18 @@ contract MyV2CreditDelegation {
      * @param tokenId The NFT ID of the approval being used
      * @param asset The asset they are allowed to borrow
      * 
-     * Add permissions to this call, e.g. only the owner should be able to approve borrowers!
+     * Allows a borrower holding a valid NFT to borrow at the rate set in the constructor
      */
     function requestCredit(address approvalNFT, uint256 tokenId, address asset) public {
         require(IERC721(approvalNFT).ownerOf(tokenId) == msg.sender);
         burnedApprovals[approvalNFT][tokenId] = true;
 
         (, address stableDebtTokenAddress,) = dataProvider.getReserveTokensAddresses(asset);
-        IStableDebtToken(stableDebtTokenAddress).approveDelegation(msg.sender, limits[approvalNFT]);
+        IStableDebtToken(stableDebtTokenAddress).approveDelegation(msg.sender, terms[approvalNFT].limit);
+
+        // Note that we are assuming the borrower withdraws the full amount
+        loans[stableDebtTokenAddress][msg.sender] = Loan({rateMultiplier: terms[approvalNFT].rateMultiplier, active: true, principalBalance: terms[approvalNFT].limit});
+        // After this step the borrower can call borrow with this contract as the onBehalfOf
     }
     
     /**
@@ -77,18 +94,39 @@ contract MyV2CreditDelegation {
      * @param asset The asset to be repaid
      * 
      * User calling this function must have approved this contract with an allowance to transfer the tokens
-     * 
-     * You should keep internal accounting of borrowers, if your contract will have multiple borrowers
      */
     function repayBorrower(uint256 amount, address asset) public {
         IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         IERC20(asset).safeApprove(address(lendingPool), amount);
 
+        // Calculate the additional interest margin and extract that from the repayment amount
+        (, address stableDebtTokenAddress,) = dataProvider.getReserveTokensAddresses(asset);
+        uint256 principalBalance =  IStableDebtToken(stableDebtTokenAddress).principalBalanceOf(msg.sender);
+        uint256 baseBalance =  IStableDebtToken(stableDebtTokenAddress).balanceOf(msg.sender);
+
+        require(principalBalance == loans[stableDebtTokenAddress][msg.sender].principalBalance);
+
+        // This will throw if accounting gets corrupted and lending pool balance is lower than principal balance
+        uint256 baseInterest = baseBalance.sub(loans[stableDebtTokenAddress][msg.sender].principalBalance);
+
+        uint256 premiumInterest = baseInterest.mul(loans[stableDebtTokenAddress][msg.sender].rateMultiplier);
+
+        // Extract premium interest and distribute to pool
+        uint256 repaymentAmount = amount.sub(premiumInterest);
+
+        // The remaining amount stays in this contract gets deposited into the lending pool
+        IERC20(asset).safeApprove(address(lendingPool), premiumInterest);
+        // aTokens go to this contract
+        lendingPool.deposit(asset, premiumInterest, address(this), 0);
+
+
         // Repaying has to be done at the aave rate
-        // This is where we would extract the margin for the investors
-        lendingPool.repay(asset, amount, 1, address(this));
+        // Repay uses the delegator's address for onBehalfOf
+        lendingPool.repay(asset, repaymentAmount, 1, address(this));
+        uint256 newPrincipalBalance =  IStableDebtToken(stableDebtTokenAddress).principalBalanceOf(msg.sender);
+        loans[stableDebtTokenAddress][msg.sender].principalBalance = newPrincipalBalance;
     }
-    
+
     /**
      * Withdraw all of a collateral as the underlying asset, if no outstanding loans delegated
      * @param asset The underlying asset to withdraw
