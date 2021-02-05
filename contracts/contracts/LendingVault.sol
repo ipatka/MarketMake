@@ -128,6 +128,31 @@ contract MyV2CreditDelegation {
     }
 
     /**
+     * Check balance of the borrower
+     * @param account The address of the borrower
+     * @param asset The asset to be repaid
+     * 
+     */
+    function balanceOf(address account, address asset) public view returns (uint256) {
+        // Calculate the additional interest margin and extract that from the repayment amount
+        (, address stableDebtTokenAddress,) = dataProvider.getReserveTokensAddresses(asset);
+        uint256 principalBalance =  IStableDebtToken(stableDebtTokenAddress).principalBalanceOf(account);
+        uint256 baseBalance =  IStableDebtToken(stableDebtTokenAddress).balanceOf(account);
+
+        require(principalBalance == loans[stableDebtTokenAddress][account].principalBalance);
+
+        // This will throw if accounting gets corrupted and lending pool balance is lower than principal balance
+        uint256 baseInterest = baseBalance.sub(loans[stableDebtTokenAddress][account].principalBalance);
+
+        uint256 premiumInterest = baseInterest.mul(loans[stableDebtTokenAddress][account].rateMultiplier);
+
+        uint256 balance = baseBalance.add(premiumInterest);
+
+        return balance;
+    }
+
+
+    /**
      * Withdraw all of a collateral as the underlying asset, if no outstanding loans delegated
      * @param asset The underlying asset to withdraw
      * 
