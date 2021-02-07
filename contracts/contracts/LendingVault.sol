@@ -43,10 +43,10 @@ contract MyV2CreditDelegation {
     // Track addresses with active loans. Same address cannot have multiple lines open per asset with different terms
     mapping ( address => mapping (address => Loan )) public loans;
 
-    constructor () public {
+    constructor (address _lowCreditNft, address _highCreditNft) public {
         owner = msg.sender;
-        terms[0x0000000000000000000000000000000000000001] = Term({limit: 1 ether, rateMultiplier: 5}); //Placeholder - limit arg should be an NFT address
-        terms[0x0000000000000000000000000000000000000002] = Term({limit: 5 ether, rateMultiplier: 3}); // Placeholder - limit arg should be an NFT address
+        terms[_lowCreditNft] = Term({limit: 1 ether, rateMultiplier: 5}); //Placeholder - limit arg should be an NFT address
+        terms[_highCreditNft] = Term({limit: 5 ether, rateMultiplier: 3}); // Placeholder - limit arg should be an NFT address
     }
 
     /**
