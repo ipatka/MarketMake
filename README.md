@@ -3,16 +3,23 @@ Combining Molecule, Bloom, &amp; Aave to build unsecured lending vaults
 
 Faucet on Kovan:
 https://testnet.aave.com/faucet
+
 NFT tokens:
-low credit: 0xe22da380ee6B445bb8273C81944ADEB6E8450422
-high credit: 0x9b82433944Cf77f0C90C90bAC473324f93910ed0
+* low credit: 0xe22da380ee6B445bb8273C81944ADEB6E8450422
+* high credit: 0x9b82433944Cf77f0C90C90bAC473324f93910ed0
+
 USDC Kovan: 0xe22da380ee6b445bb8273c81944adeb6e8450422
+
 Investor + Borrower Wallet: (use same for demo): 0x93DF203b8Da82d57113709015D0A9e08a1615DF9
+
 Aave Lending Pool Kovan: 0x9FE532197ad76c5a68961439604C037EB79681F0
+
 MyV2CreditDelegation:
 Prelaunched: 0x1D2048b4673a7D3C874D5Ca0cB584695Fcc4CC7e
+
 Demo contract address:  
 0x81911FddCB42647B295BcDa8f2e801e4C3325fFa
+
 Steps:
 1) Launch MyV2CreditDelegation smart contract
 - Input params:
